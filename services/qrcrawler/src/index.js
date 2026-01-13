@@ -79,7 +79,7 @@ async function crawlUrl(url, browser) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
 
     const {
-      phoneNumber='',
+      phoneNumber,
       region,
       profileLink,
       profileName,
@@ -133,6 +133,8 @@ async function crawlUrl(url, browser) {
         )
         .flatMap((value) => value.split(',').map((entry) => entry.trim()))
         .filter((value) => value.length > 0);
+
+      if(!languages[0]) languages.push('Anglais')
 
       const publicationText = profileNodes[0]?.closest('p')?.textContent?.trim() ?? '';
 
@@ -319,7 +321,7 @@ async function saveCrawlResult(env, result) {
     )
       .bind(
         result.url,
-        result.phoneNumber,
+        result.phoneNumber ?? '',
         result.profileName,
         result.region ?? '',
         profileLink,
@@ -398,7 +400,7 @@ async function saveCrawlResult(env, result) {
   )
     .bind(
       resolved.url,
-      phoneNumber,
+      phoneNumber || '',
       resolved.profileName,
       resolved.region,
       resolved.languages,
