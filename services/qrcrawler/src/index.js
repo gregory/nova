@@ -232,6 +232,20 @@ function parsePublicationTimestamp(text) {
   return result.toISOString();
 }
 
+function toCsv(rows, headers) {
+  const escape = (value) => {
+    const text = value == null ? '' : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+
+  const lines = [];
+  lines.push(headers.map(escape).join(';'));
+  for (const row of rows) {
+    lines.push(headers.map((key) => escape(row[key])).join(';'));
+  }
+  return lines.join('\n');
+}
+
 async function insertSeedJobs(env, urls) {
   if (!urls.length) {
     return [];
@@ -494,6 +508,38 @@ export default {
         .bind(limit)
         .all();
       return Response.json({ count: results.length, results });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/results.csv') {
+      const parsedLimit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+      const limit = Number.isFinite(parsedLimit) ? parsedLimit : 1000;
+      const { results } = await env.DB.prepare(
+        'SELECT * FROM crawl_results ORDER BY phoneNumber, createdAt DESC LIMIT ?'
+      )
+        .bind(limit)
+        .all();
+      const headers = [
+        'website',
+        'profileName',
+        'phoneNumber',
+        'region',
+        'languages',
+        'nationality',
+        'profileLink',
+        'url',
+        'publicationText',
+        'publicationTimestamp',
+        'createdAt',
+        'contactedAt',
+        'phoneHistory',
+      ];
+      const csv = toCsv(results, headers);
+      return new Response(csv, {
+        headers: {
+          'content-type': 'text/csv; charset=utf-8',
+          'content-disposition': 'attachment; filename="qrcrawler-results.csv"',
+        },
+      });
     }
 
     if (request.method === 'GET' && url.pathname.startsWith('/jobs/')) {
