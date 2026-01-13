@@ -1,0 +1,43 @@
+{
+  "name": "@whise/billit-driver",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Billit Driver for whise",
+  "main": "lib/index.js",
+  "scripts": {
+    "generate": "openapi-ts -f ./openapi-ts.config.ts",
+    "prepublishOnly": "npm run generate",
+    "test": "node --env-file .env index.js",
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "billit",
+    "whise"
+  ],
+  "author": "Gregory Horion",
+  "license": "ISC",
+  "type": "module",
+  "files": [
+    "lib/**"
+  ],
+  "dependencies": {
+    "ky": "^1.9.0",
+    "zod": "^4.1.4"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.81.1",
+    "typescript": "^5.9.2"
+  },
+  "exports": {
+    ".": {
+      "import": "./lib/index.js",
+      "default": "./lib/index.js"
+    },
+    "./*": {
+      "require": "./lib/*.js",
+      "import": "./lib/*.js"
+    }
+  }
+}

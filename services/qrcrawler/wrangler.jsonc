@@ -1,0 +1,43 @@
+{
+  "name": "qrcrawler",
+  "main": "src/index.js",
+  "compatibility_date": "2024-10-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "vars": {
+    "SEED_URL": "https://www.quartier-rouge.be/rechercher/?l%5B%5D=c1000108193&l%5B%5D=c1000108323&l%5B%5D=c1000109258&l%5B%5D=c1000109261&d=10&c%5B%5D=incall&c%5B%5D=massage&gender%5B%5D=2&page=1"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "qrcrawler-db",
+      "database_id": "REPLACE_WITH_DATABASE_ID"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "PAGE_QUEUE",
+        "queue": "qrcrawler-page-queue"
+      },
+      {
+        "binding": "CRAWL_QUEUE",
+        "queue": "qrcrawler-crawl-queue"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "qrcrawler-page-queue",
+        "max_batch_size": 5,
+        "max_batch_timeout": 10
+      },
+      {
+        "queue": "qrcrawler-crawl-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 10
+      }
+    ]
+  }
+}

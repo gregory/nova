@@ -1,0 +1,42 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": ["dist/**"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "start": {
+      "dependsOn": ["^start"],
+      "inputs": ["$TURBO_DEFAULT$", ".env", ".env.dev"],
+      "cache": false,
+      "persistent": true,
+      "interactive": true
+    },
+    "dev": {
+      "dependsOn": ["^start"],
+      "cache": false,
+      "persistent": true
+    },
+    "test": {
+      "dependsOn": ["^start"],
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    },
+    "setup": {
+      "dependsOn": ["^setup"],
+      "cache": false
+    }
+  },
+  "globalPassThroughEnv": ["AWS_SECRET_KEY"],
+  "globalDependencies": [
+    "jsconfig.json" // contents will impact hashes of all tasks
+  ]
+}
