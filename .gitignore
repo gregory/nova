@@ -178,3 +178,4 @@ dist
 services/importer/doc/
 services/importer/download/
 services/importer/services/importer/download/
+services/qrcrawler/exports/

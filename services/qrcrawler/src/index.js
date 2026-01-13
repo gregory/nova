@@ -248,6 +248,49 @@ function toCsv(rows, headers) {
   return lines.join('\n');
 }
 
+function toVcf(rows) {
+  const escape = (value) => (value == null ? '' : String(value)).replace(/\r?\n/g, ' ').trim();
+  return rows
+    .map((row) => {
+      const name = escape(row.profileName);
+      const phone = (row.phoneNumber||'').split(' ').join('');
+      const url = escape(row.profileLink || row.url);
+      const website = escape(row.website);
+      const noteParts = [];
+      if (row.region) noteParts.push(`Region: ${escape(row.region)}`);
+      if (row.nationality) noteParts.push(`Nationality: ${escape(row.nationality)}`);
+      if (row.languages) noteParts.push(`Languages: ${escape(row.languages)}`);
+      if (row.publicationTimestamp) noteParts.push(`Published: ${escape(row.publicationTimestamp)}`);
+      const note = noteParts.length > 0 ? noteParts.join(' | ') : '';
+
+      return [
+        'BEGIN:VCARD',
+        'VERSION:3.0',
+        `N:QR-CLIENT;${name || phone || 'Unknown'};;;`,
+        `FN:${name || phone || 'Unknown'} QR-CLIENT`,
+        `TEL;TYPE=IPHONE;type=CELL;type=VOICE:${phone}`,
+        url ? `URL:${url}` : null,
+        website ? `URL;TYPE=WORK:${website}` : null,
+        note ? `NOTE:${escape(note)}` : null,
+        'CATEGORIES:Clients',
+        'END:VCARD',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    })
+    .join('\n');
+}
+
+function formatFilenameDate(date) {
+  const pad = (value) => String(value).padStart(2, '0');
+  const day = pad(date.getDate());
+  const month = pad(date.getMonth() + 1);
+  const year = date.getFullYear();
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${day}_${month}_${year}_${hours}h${minutes}`;
+}
+
 async function insertSeedJobs(env, urls) {
   if (!urls.length) {
     return [];
@@ -540,6 +583,52 @@ export default {
         headers: {
           'content-type': 'text/csv; charset=utf-8',
           'content-disposition': 'attachment; filename="qrcrawler-results.csv"',
+        },
+      });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/results.vcf') {
+      const body = request.headers.get('content-type')?.includes('application/json')
+        ? await request.json()
+        : {};
+      const since = body?.since ?? null;
+      const parsedLimit = Number.parseInt(body?.limit, 10);
+      const limit = 3// Number.isFinite(parsedLimit) ? parsedLimit : 1000;
+      console.log('------------', body)
+
+      const params = [];
+      let where = 'exportedAt IS NULL';
+      if (since) {
+        where = 'createdAt > ?';
+        params.push(since);
+      }
+
+      const query = `SELECT * FROM crawl_results WHERE ${where} ORDER BY createdAt, phoneNumber DESC LIMIT ?`;
+      params.push(limit);
+      const { results } = await env.DB.prepare(query).bind(...params).all();
+      if (results.length === 0) {
+        return new Response('', { status: 204 });
+      }
+      const vcf = toVcf(results);
+
+      const exportedAtDate = new Date();
+      const exportedAt = exportedAtDate.toISOString();
+      if (results.length > 0) {
+        const statements = results.map((row) =>
+          env.DB.prepare('UPDATE crawl_results SET exportedAt = ? WHERE profileLink = ?').bind(
+            exportedAt,
+            row.profileLink
+          )
+        );
+        await env.DB.batch(statements);
+      }
+
+      const filenameDate = formatFilenameDate(exportedAtDate);
+
+      return new Response(vcf, {
+        headers: {
+          'content-type': 'text/vcard; charset=utf-8',
+          'content-disposition': `attachment; filename=\"${filenameDate}.vcf\"`,
         },
       });
     }
