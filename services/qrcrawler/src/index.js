@@ -469,24 +469,32 @@ async function updateJobStatus(env, url, status) {
 }
 
 async function handlePageQueueBatch(batch, env) {
+  //const skipCrawl = String(env.SKIP_CRAWL ?? '') === '1';
+  //console.log('CRAWL PAGE BATCH', { size: batch.messages.length, skipCrawl });
+  //if (skipCrawl) {
+    //for (const message of batch.messages) {
+      //console.log('CRAWL PAGE', message.body.url)
+      ////await updateJobStatus(env, message.body.url, JOB_STATUS.SUCCEEDED);
+      //message.ack();
+    //}
+    //console.log('CRAWL BATCH ACKED', { size: batch.messages.length });
+    //return;
+  //}
   let browser;
   try {
-    console.log('launching for page batch')
     browser = await puppeteer.launch(env.BROWSER);
-    console.log('launched for page batch')
   } catch {
-    console.log('---------FAILED TO LAUNCH')
+    console.log('PAGE_QUEUE PUPETEER LAUNCH FAILED')
     batch.retryAll();
     return;
   }
 
   for (const message of batch.messages) {
     try {
-      const page = new URL(message.body.url).searchParams.get('page')
-      console.log('[PAGE %s] CRAWLING PAGE',page)
+      const page = new URL(message.body.url).searchParams.get('page');
       const listingUrls = await collectListingLinks(message.body.url, browser);
       console.log('[PAGE %s] FOUND %s urls', page, listingUrls.length)
-      const seedUrls = listingUrls; //.slice(0, 1); // Only take the first one per page (testing).
+      const seedUrls = listingUrls;
       const scheduledUrls = await insertSeedJobs(env, seedUrls);
       console.log('[PAGE %s] SCHEDULED %s urls', page, scheduledUrls.length)
 
@@ -495,6 +503,11 @@ async function handlePageQueueBatch(batch, env) {
           scheduledUrls.map((item) => ({ body: { page, url: item } }))
         );
       }
+      console.log('PAGE QUEUE BATCH DONE', {
+        page,
+        scheduled: scheduledUrls.length,
+        total: seedUrls.length,
+      });
       message.ack();
     } catch (error) {
       console.error('Seed page crawl failed', { url: message.body.url, error });
@@ -506,38 +519,43 @@ async function handlePageQueueBatch(batch, env) {
 }
 
 async function handleCrawlQueueBatch(batch, env) {
+  const skipCrawl = String(env.SKIP_CRAWL ?? '') === '1';
+  console.log('CRAWL BATCH', { size: batch.messages.length, skipCrawl });
+
+  if (skipCrawl) {
+    for (const message of batch.messages) {
+      await updateJobStatus(env, message.body.url, JOB_STATUS.SUCCEEDED);
+      message.ack();
+    }
+    console.log('CRAWL BATCH ACKED', { size: batch.messages.length });
+    return;
+  }
+
   let browser;
   try {
-    console.log('launching')
     browser = await puppeteer.launch(env.BROWSER);
-    console.log('launched')
   } catch {
-    console.log('---------FAILED TO LAUNCH')
     batch.retryAll();
     return;
   }
 
-  for (const message of batch.messages) {
-    try {
-      const result = await crawlUrl(message.body.url, browser);
-      //if(!result.phoneNumber) {
-        //await updateJobStatus(env, message.body.url, JOB_STATUS.FAILED);
-        //console.log('[PAGE %s] MISSING PHONE %s - %s posted at %s', message.body.page, result.profileName, result.url, result.publicationTimestamp)
-        //message.ack()
-        //continue
-      //}
-      await saveCrawlResult(env, result);
-      await updateJobStatus(env, message.body.url, JOB_STATUS.SUCCEEDED);
-      console.log('[PAGE %s] INSERTING %s(%s) from %s: %s - posted at %s', message.body.page, result.profileName, result.nationality, result.region, result.phoneNumber, result.publicationTimestamp)
-      message.ack();
-    } catch (error) {
-      console.error('Crawler failed', { url: message.body.url, error });
-      await updateJobStatus(env, message.body.url, JOB_STATUS.FAILED);
-      message.retry();
+  try {
+    for (const message of batch.messages) {
+      try {
+        const result = await crawlUrl(message.body.url, browser);
+        await saveCrawlResult(env, result);
+        await updateJobStatus(env, message.body.url, JOB_STATUS.SUCCEEDED);
+        console.log('[PAGE %s] INSERTING %s(%s) from %s: %s - posted at %s', message.body.page, result.profileName, result.nationality, result.region, result.phoneNumber, result.publicationTimestamp)
+        message.ack();
+      } catch (error) {
+        console.error('Crawler failed', { url: message.body.url, error });
+        await updateJobStatus(env, message.body.url, JOB_STATUS.FAILED);
+        message.retry();
+      }
     }
+  } finally {
+    await browser.close();
   }
-
-  await browser.close();
 }
 
 export default {
@@ -553,6 +571,36 @@ export default {
         .bind(limit)
         .all();
       return Response.json({ count: results.length, results });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/stats') {
+      const [{ count: waiting } = { count: 0 }] = (
+        await env.DB.prepare('SELECT COUNT(*) as count FROM crawl_jobs WHERE jobStatus = ?')
+          .bind(JOB_STATUS.WAITING)
+          .all()
+      ).results;
+      const [{ count: ok } = { count: 0 }] = (
+        await env.DB.prepare('SELECT COUNT(*) as count FROM crawl_jobs WHERE jobStatus = ?')
+          .bind(JOB_STATUS.SUCCEEDED)
+          .all()
+      ).results;
+      const [{ count: ko } = { count: 0 }] = (
+        await env.DB.prepare('SELECT COUNT(*) as count FROM crawl_jobs WHERE jobStatus = ?')
+          .bind(JOB_STATUS.FAILED)
+          .all()
+      ).results;
+      const [{ count: resultsCount } = { count: 0 }] = (
+        await env.DB.prepare('SELECT COUNT(*) as count FROM crawl_results').all()
+      ).results;
+
+      return Response.json({
+        jobs: {
+          waiting,
+          ok,
+          ko,
+        },
+        results: resultsCount,
+      });
     }
 
     if (request.method === 'GET' && url.pathname === '/results.csv') {
@@ -593,7 +641,7 @@ export default {
         : {};
       const since = body?.since ?? null;
       const parsedLimit = Number.parseInt(body?.limit, 10);
-      const limit = 3// Number.isFinite(parsedLimit) ? parsedLimit : 1000;
+      const limit = Number.isFinite(parsedLimit) ? parsedLimit : 1000;
       console.log('------------', body)
 
       const params = [];
@@ -668,8 +716,8 @@ export default {
       const browser = await puppeteer.launch(env.BROWSER);
       try {
         const pageLinks = await collectPageLinks(seededUrl.toString(), browser)//.then(res => res.slice(0,2))
-        console.log('FOUND %s page links', pageLinks.length)
         await env.PAGE_QUEUE.sendBatch(pageLinks.map((link) => ({ body: { url: link } })));
+        console.log('QUEUED %s page links to crawl', pageLinks.length)
 
         return Response.json({ queued: pageLinks.length, pageLinks });
       } finally {
@@ -692,6 +740,7 @@ export default {
   },
   async queue(batch, env) {
     const queueName = batch.queue || batch.queueName;
+    console.log('HANDLING QUEUE EVENT', { queueName, size: batch.messages.length });
     if (queueName === 'qrcrawler-page-queue') {
       await handlePageQueueBatch(batch, env);
       return;
