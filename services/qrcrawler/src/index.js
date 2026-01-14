@@ -297,9 +297,7 @@ async function insertSeedJobs(env, urls) {
   }
 
   const { FETCH_WITHIN_HOURS = 2 } = env;
-  const fetchWithinHoursAgo = new Date(
-    Date.now() - Number.parseInt(FETCH_WITHIN_HOURS, 10) * 60 * 60 * 1000
-  ).toISOString();
+  //const fetchWithinHoursAgo = new Date( Date.now() - Number.parseInt(FETCH_WITHIN_HOURS, 10) * 60 * 60 * 1000).toISOString();
   const placeholders = urls.map(() => '?').join(',');
   const { results } = await env.DB.prepare(
     `SELECT url, jobStatus, jobUpdatedAt FROM crawl_jobs WHERE url IN (${placeholders})`
@@ -316,7 +314,9 @@ async function insertSeedJobs(env, urls) {
       return true;
     }
     if (existing.jobStatus === JOB_STATUS.SUCCEEDED) {
-      return existing.jobUpdatedAt < fetchWithinHoursAgo;
+      //We dont wanna fetch anouncements we already crawled
+      return false
+      //return existing.jobUpdatedAt < fetchWithinHoursAgo;
     }
     return false;
   });
